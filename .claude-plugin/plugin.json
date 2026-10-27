@@ -1,0 +1,19 @@
+{
+  "name": "cc-mesh",
+  "displayName": "CC Mesh",
+  "version": "0.1.0",
+  "description": "Discover other Claude Code instances on the LAN and dispatch tasks between sessions. Provides mesh_peers/mesh_scan/mesh_run/mesh_tasks tools, /mesh slash commands, and a localhost status panel.",
+  "author": {
+    "name": "peng"
+  },
+  "homepage": "https://github.com/peng456/cc-plugin-mesh",
+  "repository": "https://github.com/peng456/cc-plugin-mesh",
+  "license": "MIT",
+  "keywords": [
+    "mesh",
+    "lan",
+    "discovery",
+    "dispatch",
+    "multi-machine"
+  ]
+}

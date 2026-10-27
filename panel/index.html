@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>cc-mesh</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --fg: #1a1a1a; bg: #fafafa;
+    --bg: #fafafa;
+    --muted: #777;
+    --border: #e2e2e2;
+    --accent: #06c;
+    --ok: #1a7f37;
+    --off: #999;
+    --card: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --fg: #e6e6e6; --muted: #999; --border: #2a2e33;
+      --card: #1a1d21; --accent: #5af; --ok: #4c4; --ok: #4c4; --off: #888;
+    }
+    body { color: var(--fg); }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; max-width: 980px; margin: 0 auto;
+    font: 14px/1.5 -apple-system, "SF Pro", "PingFang SC", sans-serif;
+    background: var(--bg); color: var(--fg);
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 24px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .muted { color: var(--muted); }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 8px;
+  }
+  .row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.on { background: var(--ok); }
+  .dot.off { background: var(--off, #999); }
+  .name { font-weight: 600; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+    padding: 4px 10px; font: inherit; cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  input, textarea {
+    width: 100%; padding: 6px 8px; font: inherit;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--card); color: var(--fg);
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .err { color: #c00; }
+</style>
+</head>
+<body>
+<h1>cc-mesh</h1>
+<div class="muted">本机 Claude Code mesh 守护进程状态 · <span id="refresh-at" class="mono"></span></div>
+
+<h2>本机</h2>
+<div class="card">
+  <div class="row">
+    <span class="name" id="self-machine">—</span>
+    <span class="mono muted" id="self-id"></span>
+    <span class="mono muted" id="self-addr"></span>
+    <span class="muted" id="self-pairing"></span>
+  </div>
+</div>
+
+<h2>发现的机器 <span class="muted" id="peer-count"></span></h2>
+<div id="peers"></div>
+<div class="row" style="margin-top:8px">
+  <button id="btn-scan">扫描本网段</button>
+  <span class="muted mono" id="scan-result"></span>
+</div>
+
+<h2>活跃会话</h2>
+<div class="card">
+  <table id="sessions">
+    <thead><tr><th>session</th><th>alias</th><th>cwd</th><th>lastSeen</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<h2>派发任务</h2>
+<div class="card">
+  <label>目标机器（machine / id / host:port）</label>
+  <input id="dispatch-peer" placeholder="例如 livingroom-mac" />
+  <label>目标会话（可选，session id 或 alias；留空走默认路由）</label>
+  <input id="dispatch-target" />
+  <label>thread（可选，同 thread 复用会话）</label>
+  <input id="dispatch-thread" />
+  <label>任务内容</label>
+  <textarea id="dispatch-task" rows="4" placeholder="例如：把 web 服务重新部署一下，跑完告诉我"></textarea>
+  <div style="margin-top:8px">
+    <button id="btn-dispatch">派发</button>
+    <span class="mono" id="dispatch-result"></span>
+  </div>
+</div>
+
+<h2>最近任务</h2>
+<div class="card">
+  <table id="tasks">
+    <thead><tr><th>方向</th><th>对端</th><th>任务</th><th>状态</th><th>时间</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script>
+async function getJSON(p) { const r = await fetch(p); return r.json(); }
+async function postJSON(p, b) { const r = await fetch(p, { method: "POST", headers: {"content-type":"application/json"}, body: JSON.stringify(b ?? {}) }); return r.json(); }
+
+function fmt(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleTimeString();
+}
+
+async function refresh() {
+  try {
+    const s = await getJSON("/mesh/api/state");
+    document.getElementById("self-machine").textContent = s.self.machine || s.self.hostname;
+    document.getElementById("self-id").textContent = `id=${s.self.id}`;
+    document.getElementById("self-addr").textContent = `${s.self.host}:${s.self.port}`;
+    document.getElementById("self-pairing").textContent = s.requirePairing ? `配对码: ${s.pairingCode}` : "配对码: 关闭";
+    document.getElementById("refresh-at").textContent = new Date().toLocaleTimeString();
+
+    const peersEl = document.getElementById("peers");
+    document.getElementById("peer-count").textContent = `(${(s.peers ?? []).length})`;
+    if (!s.peers || s.peers.length === 0) {
+      peersEl.innerHTML = `<div class="card muted">还没发现其它机器。两台机器都装并启动本插件后，组播 5 秒内会互相看见。</div>`;
+    } else {
+      peersEl.innerHTML = s.peers.map((p) => `
+        <div class="card">
+          <div class="row">
+            <span class="dot ${p.online ? "on" : "off"}"></span>
+            <span class="name">${p.machine || "(unnamed)"}</span>
+            <span class="mono muted">${p.id}</span>
+            <span class="mono">${p.host}:${p.port}</span>
+            <span class="muted">${p.os || ""} · ${p.user || ""}</span>
+            <span class="muted">${p.online ? "在线" : "离线"} · 最后心跳 ${fmt(p.lastSeen)}</span>
+          </div>
+        </div>`).join("");
+    }
+
+    const tbodyS = document.querySelector("#sessions tbody");
+    const sessions = Object.entries(s.sessions ?? {});
+    tbodyS.innerHTML = sessions.length === 0
+      ? `<tr><td colspan="4" class="muted">（无）</td></tr>`
+      : sessions.map(([sid, info]) => `
+        <tr>
+          <td class="mono">${sid.slice(0, 8)}…</td>
+          <td>${info.alias || ""}</td>
+          <td class="mono">${info.cwd || ""}</td>
+          <td class="mono">${fmt(info.lastSeenAt)}</td>
+        </tr>`).join("");
+
+    const t = await getJSON("/mesh/v1/tasks");
+    const tbody = document.getElementById("tasks").querySelector("tbody");
+    const rows = [];
+    for (const r of (t.inbound ?? []).slice(-10).reverse()) rows.push({dir: "收", peer: r.fromMachine, task: r.task, status: r.status, ts: r.receivedAt});
+    for (const r of (t.outbound ?? []).slice(-10).reverse()) rows.push({dir: "出", peer: r.peer, task: r.task, status: r.ok ? "ok" : "err", ts: r.sentAt});
+    rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    tbody.innerHTML = rows.length === 0
+      ? `<tr><td colspan="5" class="muted">（无）</td></tr>`
+      : rows.slice(0, 20).map((r) => `
+        <tr>
+          <td>${r.dir}</td>
+          <td>${r.peer || ""}</td>
+          <td>${(r.task || "").slice(0, 80)}${(r.task || "").length > 80 ? "…" : ""}</td>
+          <td class="${r.status === "err" || r.status === "error" ? "err" : ""}">${r.status}</td>
+          <td class="mono">${fmt(r.ts)}</td>
+        </tr>`).join("");
+  } catch (err) {
+    document.getElementById("refresh-at").textContent = `加载失败: ${err.message}`;
+  }
+}
+
+document.getElementById("btn-scan").onclick = async () => {
+  const el = document.getElementById("scan-result");
+  el.textContent = "扫描中…";
+  const r = await postJSON("/mesh/api/scan", {});
+  el.textContent = `命中 ${r.found ?? 0} 台`;
+  refresh();
+};
+
+document.getElementById("btn-dispatch").onclick = async () => {
+  const peer = document.getElementById("dispatch-peer").value.trim();
+  const task = document.getElementById("dispatch-task").value.trim();
+  const thread = document.getElementById("dispatch-thread").value.trim();
+  const target = document.getElementById("dispatch-target").value.trim();
+  const el = document.getElementById("dispatch-result");
+  if (!peer || !task) { el.textContent = "请填目标机器和任务内容"; el.className = "mono err"; return; }
+  el.textContent = "派发中…"; el.className = "mono";
+  const r = await postJSON("/mesh/api/dispatch", { peerKey: peer, task, thread, targetSession: target });
+  el.textContent = r.ok ? `已派发：${r.taskId || ""}` : `失败：${r.error || "unknown"}`;
+  el.className = r.ok ? "mono" : "mono err";
+  setTimeout(refresh, 1000);
+};
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

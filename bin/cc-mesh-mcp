@@ -1,0 +1,156 @@
+#!/usr/bin/env node
+/**
+ * cc-mesh MCP server（stdio）—— 零依赖实现。
+ *
+ * 不依赖 @modelcontextprotocol/sdk，直接说 MCP stdio 协议（JSON-RPC 2.0
+ * over newline-delimited JSON）。这样插件不需要 `npm install`，拷贝即用。
+ *
+ * 协议事实：
+ *   - 每条消息一行 JSON（CC 端用 newline framing）
+ *   - 必须响应的方法：initialize / notifications/initialized / tools/list / tools/call / ping
+ *   - 其它 notifications 直接吞掉
+ *
+ * 所有 tool 都通过 HTTP 转发给本机 cc-meshd（http://127.0.0.1:45921）。
+ */
+import readline from "node:readline";
+
+const DAEMON_PORT = Number(process.env.CC_MESH_PORT || "45921");
+const DAEMON = `http://127.0.0.1:${DAEMON_PORT}`;
+const PROTOCOL_VERSION = "2024-11-05";
+
+async function httpGet(p) { const r = await fetch(`${DAEMON}${p}`); return r.json(); }
+async function httpPost(p, b) {
+  const r = await fetch(`${DAEMON}${p}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b ?? {}),
+  });
+  return r.json();
+}
+
+const TOOLS = [
+  {
+    name: "mesh_peers",
+    description: "List Claude Code instances discovered on the LAN. Returns id, machine name, host:port, online status, last-seen timestamp.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "mesh_scan",
+    description: "Actively scan the local /24 subnet for other cc-mesh daemons.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "mesh_run",
+    description: "Dispatch a task to a peer's Claude Code session. Async — returns taskId immediately. `peer` = machine name, instance id, or host:port. `targetSession` addresses a specific CC session on the peer (alias or session id); leave empty to use thread routing or sole active session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        peer: { type: "string" },
+        task: { type: "string" },
+        thread: { type: "string" },
+        targetSession: { type: "string" },
+        noWake: { type: "boolean" },
+      },
+      required: ["peer", "task"],
+    },
+  },
+  {
+    name: "mesh_tasks",
+    description: "List inbound and outbound tasks recorded by this machine's mesh daemon.",
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "number" } },
+    },
+  },
+];
+
+function send(msg) {
+  process.stdout.write(JSON.stringify(msg) + "\n");
+}
+function replyResult(id, result) { send({ jsonrpc: "2.0", id, result }); }
+function replyError(id, code, message) { send({ jsonrpc: "2.0", id, error: { code, message } }); }
+
+async function callTool(name, args = {}) {
+  switch (name) {
+    case "mesh_peers": {
+      const state = await httpGet("/mesh/api/state");
+      if (!state.ok) throw new Error(state.error || "daemon not ok");
+      return {
+        self: state.self,
+        peers: (state.peers ?? []).map((p) => ({
+          id: p.id, machine: p.machine, online: p.online,
+          host: p.host, port: p.port, os: p.os, user: p.user,
+          version: p.version, lastSeen: p.lastSeen,
+        })),
+      };
+    }
+    case "mesh_scan":
+      return httpPost("/mesh/api/scan", {});
+    case "mesh_run":
+      return httpPost("/mesh/api/dispatch", {
+        peerKey: args.peer,
+        task: args.task,
+        thread: args.thread ?? "",
+        targetSession: args.targetSession ?? "",
+        noWake: args.noWake === true,
+      });
+    case "mesh_tasks": {
+      const r = await httpGet("/mesh/v1/tasks");
+      const limit = Number(args?.limit) || 20;
+      return {
+        inbound: (r.inbound ?? []).slice(-limit),
+        outbound: (r.outbound ?? []).slice(-limit),
+      };
+    }
+    default:
+      throw new Error(`unknown tool: ${name}`);
+  }
+}
+
+async function handleMessage(msg) {
+  if (!msg || typeof msg !== "object") return;
+  const { id, method, params } = msg;
+
+  // Notifications（无 id）：只吞
+  if (id === undefined || id === null) {
+    return;
+  }
+
+  try {
+    if (method === "initialize") {
+      return replyResult(id, {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: { name: "cc-mesh", version: "0.1.0" },
+      });
+    }
+    if (method === "ping") return replyResult(id, {});
+    if (method === "tools/list") return replyResult(id, { tools: TOOLS });
+    if (method === "tools/call") {
+      const { name, arguments: args } = params ?? {};
+      try {
+        const result = await callTool(name, args ?? {});
+        return replyResult(id, {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        });
+      } catch (err) {
+        return replyResult(id, {
+          isError: true,
+          content: [{ type: "text", text: `mesh tool error: ${err?.message ?? err}` }],
+        });
+      }
+    }
+    replyError(id, -32601, `method not found: ${method}`);
+  } catch (err) {
+    replyError(id, -32603, String(err?.message ?? err));
+  }
+}
+
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  if (!line.trim()) return;
+  let msg;
+  try { msg = JSON.parse(line); } catch { return; }
+  handleMessage(msg);
+});
+
+process.on("SIGINT", () => process.exit(0));
+process.on("SIGTERM", () => process.exit(0));

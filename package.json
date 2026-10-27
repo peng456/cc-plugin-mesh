@@ -1,0 +1,36 @@
+{
+  "name": "cc-plugin-mesh",
+  "version": "0.1.0",
+  "description": "Claude Code mesh plugin: discover other CC instances on LAN and dispatch tasks between sessions",
+  "type": "module",
+  "main": "daemon/lib/index.js",
+  "bin": {
+    "cc-meshd": "daemon/bin/cc-meshd",
+    "cc-mesh": "bin/cc-mesh",
+    "cc-mesh-mcp": "bin/cc-mesh-mcp"
+  },
+  "scripts": {
+    "test": "node --test tests/",
+    "check": "node scripts/check-loadable.mjs",
+    "selftest": "node daemon/lib/_selftest-discovery.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "private": false,
+  "files": [
+    ".claude-plugin",
+    ".mcp.json",
+    "commands",
+    "skills",
+    "agents",
+    "hooks",
+    "bin",
+    "daemon",
+    "panel",
+    "scripts",
+    "README.md"
+  ],
+  "dependencies": {}
+}

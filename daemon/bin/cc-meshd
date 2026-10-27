@@ -1,0 +1,71 @@
+#!/usr/bin/env node
+/**
+ * cc-meshd — mesh 守护进程。
+ *
+ * 生命周期跟随 CC 应用：
+ *   - SessionStart hook 拉起本进程（detached）
+ *   - 任意 CC 会话注册 → 引用计数 +1
+ *   - SessionEnd hook 注销 → 引用计数 -1
+ *   - 计数为 0 持续 idleTimeoutMs → 自杀
+ *
+ * 用法：
+ *   cc-meshd [--port 45921] [--no-multicast] [--no-scan]
+ */
+import { createHttpServer } from "../lib/http_api.js";
+import { Mesh } from "../lib/mesh.js";
+import { dispatchTask } from "../lib/dispatcher.js";
+
+const args = process.argv.slice(2);
+function argVal(name, dflt) {
+  const i = args.indexOf(`--${name}`);
+  if (i < 0) return dflt;
+  const v = args[i + 1];
+  return v === undefined || v.startsWith("--") ? dflt : v;
+}
+const hasFlag = (name) => args.includes(`--${name}`);
+
+const port = Number(argVal("port", "45921")) || 45921;
+const useMulticast = !hasFlag("no-multicast");
+const scanOnStart = !hasFlag("no-scan");
+const idleTimeoutMs = Number(argVal("idle-timeout-ms", "300000")) || 300000;
+
+const mesh = new Mesh({
+  port,
+  useMulticast,
+  scanOnStart,
+  idleTimeoutMs,
+  dispatchFn: dispatchTask,
+});
+
+const server = createHttpServer({ mesh });
+
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`[cc-meshd] port ${port} already in use — another instance running? exiting.`);
+    process.exit(2);
+  }
+  console.error(`[cc-meshd] server error:`, err);
+  process.exit(1);
+});
+
+const bindHost = argVal("bind", "0.0.0.0");
+server.listen(port, bindHost, async () => {
+  console.log(`[cc-meshd] listening on ${bindHost}:${port}, machine=${mesh.state.machineName}, id=${mesh.state.instanceId}`);
+  await mesh.start();
+});
+
+mesh.on("idle-exit", async () => {
+  console.log(`[cc-meshd] no active sessions for ${idleTimeoutMs}ms, exiting.`);
+  await shutdown(0);
+});
+
+mesh.on("diagnostic", (msg) => console.error(`[cc-meshd:diag]`, msg));
+
+async function shutdown(code) {
+  try { server.close(); } catch {}
+  try { await mesh.stop(); } catch {}
+  process.exit(code);
+}
+
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));

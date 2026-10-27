@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+/**
+ * cc-mesh CLI：人类用的命令行入口。
+ *
+ * 用法：
+ *   cc-mesh status                 —— 本机 mesh 状态概览
+ *   cc-mesh peers                  —— 列出发现的机器
+ *   cc-mesh scan                   —— 主动扫一次本网段
+ *   cc-mesh sessions               —— 列出本机已注册的 CC 会话
+ *   cc-mesh register <session-id> [alias]   —— 给会话起别名
+ *   cc-mesh tasks                  —— 最近任务
+ *   cc-mesh run <peer> <task>      —— 派任务到对端
+ *   cc-mesh panel                  —— 打印面板 URL
+ */
+const DAEMON_PORT = Number(process.env.CC_MESH_PORT || "45921");
+const DAEMON = `http://127.0.0.1:${DAEMON_PORT}`;
+
+async function httpGet(p) { const r = await fetch(`${DAEMON}${p}`); return r.json(); }
+async function httpPost(p, b) {
+  const r = await fetch(`${DAEMON}${p}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b ?? {}),
+  });
+  return r.json();
+}
+
+function fmtTime(ts) { return ts ? new Date(ts).toLocaleString() : "—"; }
+function pad(s, n) { s = String(s ?? ""); return s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length); }
+
+const [cmd, ...rest] = process.argv.slice(2);
+
+async function main() {
+  switch (cmd) {
+    case "status": {
+      const s = await httpGet("/mesh/api/state");
+      console.log(`machine:  ${s.self.machine} (${s.self.id})`);
+      console.log(`addr:     ${s.self.host}:${s.self.port}`);
+      console.log(`pairing:  ${s.requirePairing ? `on (code=${s.pairingCode})` : "off"}`);
+      console.log(`peers:    ${(s.peers ?? []).length}  (${(s.peers ?? []).filter(p => p.online).length} online)`);
+      console.log(`sessions: ${Object.keys(s.sessions ?? {}).length}`);
+      console.log(`panel:    ${DAEMON}/panel`);
+      break;
+    }
+    case "peers": {
+      const s = await httpGet("/mesh/api/state");
+      const peers = s.peers ?? [];
+      if (peers.length === 0) { console.log("(no peers)"); break; }
+      console.log(pad("STATE", 8) + pad("MACHINE", 20) + pad("ID", 18) + pad("ADDR", 22) + pad("OS", 16) + "LAST-SEEN");
+      for (const p of peers) {
+        console.log(
+          pad(p.online ? "● on" : "○ off", 8)
+          + pad(p.machine, 20)
+          + pad(p.id, 18)
+          + pad(`${p.host}:${p.port}`, 22)
+          + pad(p.os, 16)
+          + fmtTime(p.lastSeen),
+        );
+      }
+      break;
+    }
+    case "scan": {
+      process.stdout.write("scanning… ");
+      const r = await httpPost("/mesh/api/scan", {});
+      console.log(`found=${r.found}`);
+      break;
+    }
+    case "sessions": {
+      const s = await httpGet("/mesh/api/state");
+      const entries = Object.entries(s.sessions ?? {});
+      if (entries.length === 0) { console.log("(no sessions)"); break; }
+      console.log(pad("SESSION", 40) + pad("ALIAS", 16) + pad("CWD", 40) + "LAST-SEEN");
+      for (const [sid, info] of entries) {
+        console.log(pad(sid, 40) + pad(info.alias ?? "", 16) + pad(info.cwd ?? "", 40) + fmtTime(info.lastSeenAt));
+      }
+      break;
+    }
+    case "register": {
+      const [sessionId, alias] = rest;
+      if (!sessionId) { console.error("usage: cc-mesh register <session-id> [alias]"); process.exit(2); }
+      const r = await httpPost("/mesh/api/session/register", { sessionId, alias: alias ?? "" });
+      console.log(r.ok ? `ok (new=${r.isNew})` : `failed: ${r.error}`);
+      break;
+    }
+    case "tasks": {
+      const r = await httpGet("/mesh/v1/tasks");
+      const inbound = (r.inbound ?? []).slice(-10);
+      const outbound = (r.outbound ?? []).slice(-10);
+      console.log("== inbound ==");
+      for (const t of inbound) console.log(`  [${fmtTime(t.receivedAt)}] from=${t.fromMachine} status=${t.status} task=${(t.task ?? "").slice(0, 80)}`);
+      console.log("== outbound ==");
+      for (const t of outbound) console.log(`  [${fmtTime(t.sentAt)}] to=${t.peer} ok=${t.ok} task=${(t.task ?? "").slice(0, 80)}`);
+      break;
+    }
+    case "run": {
+      const [peer, ...taskParts] = rest;
+      const task = taskParts.join(" ");
+      if (!peer || !task) { console.error('usage: cc-mesh run <peer> <task...>'); process.exit(2); }
+      const r = await httpPost("/mesh/api/dispatch", { peerKey: peer, task });
+      console.log(JSON.stringify(r, null, 2));
+      break;
+    }
+    case "panel": {
+      console.log(`${DAEMON}/panel`);
+      break;
+    }
+    case undefined:
+    case "help":
+    case "--help":
+    case "-h": {
+      console.log(`cc-mesh — mesh CLI
+
+usage:
+  cc-mesh status
+  cc-mesh peers
+  cc-mesh scan
+  cc-mesh sessions
+  cc-mesh register <session-id> [alias]
+  cc-mesh tasks
+  cc-mesh run <peer> <task>
+  cc-mesh panel
+
+daemon: ${DAEMON}`);
+      break;
+    }
+    default:
+      console.error(`unknown command: ${cmd}. try \`cc-mesh help\`.`);
+      process.exit(2);
+  }
+}
+
+main().catch((err) => {
+  if (String(err?.cause?.code ?? err?.code ?? "").includes("ECONNREFUSED")) {
+    console.error(`cc-meshd is not running on :${DAEMON_PORT}. Open a Claude Code session (the SessionStart hook will start it), or run \`cc-meshd\` manually.`);
+    process.exit(1);
+  }
+  console.error(err?.message ?? err);
+  process.exit(1);
+});
