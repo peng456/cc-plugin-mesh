@@ -120,6 +120,7 @@ async function handleMessage(msg) {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
         serverInfo: { name: "cc-mesh", version: "0.1.0" },
+        instructions: "局域网跨机 agent 通信。用 mesh_peers 看在线对端，mesh_scan 主动扫描，mesh_run 派任务，mesh_tasks 查记录。thread 是会话线索：同一会话内必须复用同一个 thread 值。换成新值会在对端新起会话，导致上下文丢失。"
       });
     }
     if (method === "ping") return replyResult(id, {});
