@@ -1,0 +1,17 @@
+{
+  "name": "cc-plugin-mesh",
+  "owner": {
+    "name": "peng456"
+  },
+  "plugins": [
+    {
+      "name": "cc-mesh",
+      "source": {
+        "source": "github",
+        "repo": "peng456/cc-plugin-mesh"
+      },
+      "description": "Claude Code LAN mesh plugin - discover peers on LAN and dispatch tasks between Claude Code sessions",
+      "version": "0.1.0"
+    }
+  ]
+}
