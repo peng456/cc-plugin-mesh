@@ -4,7 +4,7 @@
  * 路由：
  *   GET  /mesh/v1/health            —— 自述（发现/扫描用），不需要鉴权
  *   GET  /mesh/v1/state             —— 完整状态（面板用），需配对码（若开启）
- *   POST /mesh/v1/tasks             —— 远端派发任务入站，需配对码
+ *   POST /mesh/v1/task              —— 远端派发任务入站，需配对码
  *   GET  /mesh/v1/tasks             —— 任务记录，需配对码
  *
  *   POST /mesh/api/session/register   —— CC 会话注册（本机 hook 用，不需要配对）
@@ -121,7 +121,7 @@ export function createHttpServer({ mesh }) {
         return sendJson(res, 200, mesh.publicState());
       }
 
-      if (path === "/mesh/v1/tasks" && req.method === "POST") {
+      if (path === "/mesh/v1/task" && req.method === "POST") {
         const body = JSON.parse(await readBody(req));
         const result = await mesh.acceptInboundTask(body);
         return sendJson(res, result.ok ? 200 : 400, result);

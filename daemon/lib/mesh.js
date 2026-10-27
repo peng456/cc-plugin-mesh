@@ -260,7 +260,7 @@ export class Mesh extends EventEmitter {
     const host = peer.host;
     const port = peer.port;
     if (!host || !port) return { ok: false, error: "peer has no reachable endpoint" };
-    const url = `http://${host}:${port}/mesh/v1/tasks`;
+    const url = `http://${host}:${port}/mesh/v1/task`;
     const body = {
       task,
       thread,
