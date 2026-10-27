@@ -31,7 +31,7 @@ async function isDaemonUp() {
     const r = await fetch(`${DAEMON}/mesh/v1/health`, { signal: AbortSignal.timeout(500) });
     if (!r.ok) return false;
     const body = await r.json();
-    return body && body.app === "cc-mesh";
+    return body && body.app === "dsh-mesh";
   } catch {
     return false;
   }

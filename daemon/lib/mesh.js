@@ -90,8 +90,8 @@ export class Mesh extends EventEmitter {
 
   selfRecord() {
     return {
-      app: "cc-mesh",
-      proto: "cc-mesh",
+      app: "dsh-mesh",
+      proto: "dsh-mesh",
       v: PROTOCOL_VERSION,
       id: this.state.instanceId,
       machine: this.state.machineName,

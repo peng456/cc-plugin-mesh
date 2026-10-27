@@ -19,9 +19,9 @@ import os from "node:os";
 import { sanitizeCapabilities, isCapabilityStale, summarizeCapabilities, currentCapabilities } from "./capabilities.js";
 import { osInfo, sanitizeOsInfo, systems, sanitizeSystems } from "./osinfo.js";
 
-export const MESH_GROUP = "239.255.42.100";
-export const MESH_PORT = 45893;
-export const APP_TAG = "cc-mesh";
+export const MESH_GROUP = "239.255.42.99";
+export const MESH_PORT = 45892;
+export const APP_TAG = "dsh-mesh";
 export const HTTP_PORT_DEFAULT = 45921;
 
 /** 带横线的 UUID 形态：opencode-mesh 冒名时用的 id 形状，cc-mesh 自己从不产出。 */
@@ -44,7 +44,7 @@ const UUID_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 export function looksLikeCcPeer(record) {
   if (!record || record.app !== APP_TAG || !record.id) return false;
   if (record.v !== undefined && record.v !== 2) return false;
-  if (record.proto !== undefined && record.proto !== "cc-mesh") return false;
+  if (record.proto !== undefined && record.proto !== "dsh-mesh") return false;
   // 已经落盘的老快照里没有 v/proto（见 persist.js 的字段表），那条路径上只剩
   // id 形态可判：cc-mesh 自己用 randomBytes(8).toString("hex") 生成 id，
   // 同血统的对端不可能产出带横线的 UUID。这里刻意只挡 UUID 形态，而不要求
@@ -304,7 +304,7 @@ export class MeshDiscovery extends EventEmitter {
     this.#address = preferredAddress();
     const rec = {
       v: PROTOCOL_VERSION,
-      app: APP_TAG,
+      app: "dsh-mesh",
       id: this.#id,
       machine: this.#meta.machine ?? os.hostname(),
       hostname: os.hostname(),

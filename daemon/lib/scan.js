@@ -102,7 +102,7 @@ export async function scanForPeers({
         if (res.ok) {
           const body = await res.json();
           // 必须是我们的协议、且不是自己
-          if (body && body.app === "cc-mesh" && body.id) {
+          if (body && body.app === "dsh-mesh" && body.id) {
             found.push({ ...body, sourceAddress: ip });
           }
         }
